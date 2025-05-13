@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Twitch Chat Voice</title>
+  <script src="https://code.responsivevoice.org/responsivevoice.js?key=YWZWso54"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #chat { max-height: 500px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-top: 20px; }
+    .msg { margin-bottom: 8px; }
+    #login { margin-bottom: 20px; }
+    input { margin-right: 10px; padding: 5px; }
+    button { padding: 5px 10px; }
+  </style>
+</head>
+<body>
+  <h2>📢 Twitch Chat Voice</h2>
+
+  <!-- ฟอร์มกรอกข้อมูล -->
+  <div id="login">
+    <input type="text" id="oauth" placeholder="OAuth Token (ไม่ต้องใส่ oauth:)" />
+    <input type="text" id="nick" placeholder="ชื่อผู้ใช้ (NICK)" />
+    <input type="text" id="channel" placeholder="ชื่อแชนแนล (CHANNEL)" />
+    <input type="number" id="wakeInterval" placeholder="เวลาปลุก voice (นาที)" min="1" value="6" />
+    <button onclick="start()">เริ่มเชื่อมต่อ</button>
+  </div>
+
+  <!-- พื้นที่แชท -->
+  <div id="chat"></div>
+
+  <script>
+    let socket;
+    let voiceIntervalId;
+
+    function start() {
+      const OAUTH_TOKEN = 'oauth:' + document.getElementById('oauth').value.trim();
+      const NICK = document.getElementById('nick').value.trim();
+      const CHANNEL = document.getElementById('channel').value.trim();
+      const intervalMinutes = parseInt(document.getElementById('wakeInterval').value.trim(), 10);
+
+      if (!OAUTH_TOKEN || !NICK || !CHANNEL || isNaN(intervalMinutes) || intervalMinutes <= 0) {
+        alert("กรุณากรอกข้อมูลให้ครบ และใส่เวลาปลุก voice เป็นตัวเลขมากกว่า 0");
+        return;
+      }
+
+      const intervalMs = intervalMinutes * 60 * 1000;
+
+      connectToTwitch(OAUTH_TOKEN, NICK, CHANNEL, intervalMs);
+    }
+
+    function connectToTwitch(OAUTH_TOKEN, NICK, CHANNEL, intervalMs) {
+      socket = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
+
+      socket.onopen = () => {
+        socket.send("PASS " + OAUTH_TOKEN);
+        socket.send("NICK " + NICK);
+        socket.send("JOIN #" + CHANNEL);
+        console.log("✅ Connected to Twitch Chat");
+
+        // เริ่มการปลุก voice ใหม่
+        if (voiceIntervalId) clearInterval(voiceIntervalId);
+        voiceIntervalId = setInterval(() => {
+          if (responsiveVoice.voiceSupport()) {
+            responsiveVoice.speak("ทักทายได้นะครับ", "Thai Female", { volume: 0 });
+          }
+        }, intervalMs);
+      };
+
+      socket.onmessage = (event) => {
+        const msg = event.data;
+
+        if (msg.includes("PRIVMSG")) {
+          const username = msg.split("!")[0].substring(1);
+          const message = msg.split("PRIVMSG")[1].split(":")[1];
+
+          const ignoreList = ["soundalerts"];
+          if (ignoreList.includes(username.toLowerCase())) return;
+
+          const chatBox = document.getElementById("chat");
+          const div = document.createElement("div");
+          div.className = "msg";
+          div.innerText = `${username}: ${message}`;
+          chatBox.appendChild(div);
+          chatBox.scrollTop = chatBox.scrollHeight;
+
+          const voice = responsiveVoice.getVoices().find(v => v.name === "Thai Female");
+          if (voice) {
+            responsiveVoice.speak(`${username} พูดว่า ${message}`, "Thai Female");
+          } else {
+            console.warn("❌ Voice not found!");
+          }
+        }
+      };
+
+      socket.onclose = () => {
+        console.warn("⚠️ WebSocket closed. Reconnecting in 3s...");
+        setTimeout(() => connectToTwitch(OAUTH_TOKEN, NICK, CHANNEL, intervalMs), 3000);
+      };
+
+      socket.onerror = (e) => {
+        console.error("❌ WebSocket error:", e);
+        socket.close();
+      };
+    }
+  </script>
+</body>
+</html>
